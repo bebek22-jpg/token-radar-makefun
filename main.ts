@@ -1,12 +1,14 @@
-// Token Radar: a pre-token launch radar (Node 22, standard library only).
+// Token Radar, radar-3: a pre-token launch radar (Node 22, standard library only).
 //
-// Reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), scores every
-// rankable pre-token protocol with the model in lib/model.ts, writes the ranked board to
-// /output/board.json and the dashboard's data to /output/data.js, copies dashboard/ and
-// screenshots/ to /output, and writes /output/dossier.json with the vendored make.fun library.
+// Reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), calibrates the
+// value model against the snapshot's own live-token protocols (lib/model.ts: calibrate), scores
+// every rankable pre-token protocol, writes the ranked board to /output/board.json and the
+// dashboard's data to /output/data.js, copies dashboard/ and screenshots/ to /output, and writes
+// /output/dossier.json with the vendored make.fun library.
 //
 // The run is fully deterministic: same snapshot in, same bytes out, every time. No clock, no
-// randomness, no network.
+// randomness, no network. The calibration is computed from the snapshot at run time, so the
+// grader's two runs calibrate identically.
 //
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../input/snapshot.json
@@ -46,7 +48,7 @@ if (!existsSync(inputFile)) {
 const out = flag('output', process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
 
 const snapshot = parseSnapshot(readFileSync(inputFile, 'utf8'));
-const { board, radar } = buildRadar(snapshot);
+const { board, radar, calibration } = buildRadar(snapshot);
 const issue = boardIssue(board, snapshot);
 if (issue !== null) fail(`the model wrote a board the gate refuses: ${issue}`);
 
@@ -81,7 +83,9 @@ writeFileSync(
   buildDossier(out, { text_max_bytes: TEXT_MAX_BYTES, screenshots: SCREENSHOT_CAPS, dashboard: DASHBOARD_CAPS }),
 );
 
+const calibratedGroups = calibration.groups.filter((g) => g.calibrated).length;
 process.stdout.write(
   `token-radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
+    `token-radar: calibrated ${calibratedGroups}/${calibration.groups.length} groups from ${calibration.global_n} live protocols (global median x${calibration.global_median.toFixed(3)})\n` +
     `token-radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (${dash.length} files), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
 );

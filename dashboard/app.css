@@ -112,9 +112,10 @@ tbody tr[data-selected="true"] { background: rgba(74, 222, 128, 0.08); }
 
 .model { margin-top: var(--s4); padding: var(--s5); display: grid; gap: var(--s3); }
 .formula { font-family: var(--font-num); font-size: 13px; line-height: 1.7; color: var(--muted); overflow-wrap: anywhere; background: var(--canvas); border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--s3) var(--s4); }
-.rules { display: flex; flex-wrap: wrap; gap: var(--s1); }
-.rule { font-family: var(--font-num); font-size: 12px; background: var(--canvas); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }
-.rule b { color: var(--accent); font-weight: 600; }
+table.calib { font-size: 13px; }
+table.calib th, table.calib td { padding: var(--s2) var(--s3); }
+table.calib tbody tr { cursor: default; }
+table.calib tbody tr:hover { background: transparent; }
 .foot { margin-top: var(--s5); padding-top: var(--s4); border-top: 1px solid var(--border); color: var(--faint); font-size: 12px; display: grid; gap: var(--s1); }
 .empty { padding: var(--s7) var(--s5); text-align: center; display: grid; gap: var(--s3); justify-items: center; }
 .empty p { color: var(--muted); }
@@ -138,6 +139,7 @@ tbody tr[data-selected="true"] { background: rgba(74, 222, 128, 0.08); }
 .equation { display: grid; gap: var(--s2); font-family: var(--font-num); font-size: 13px; }
 .equation div { display: flex; justify-content: space-between; gap: var(--s3); }
 .equation span { color: var(--muted); }
+.equation span.basis { font-family: var(--font-body); font-size: 12px; line-height: 1.4; }
 .equation .total { border-top: 1px solid var(--border); padding-top: var(--s2); }
 .equation .total b { color: var(--accent); }
 .steps { margin: 0; padding-left: var(--s5); display: grid; gap: var(--s3); }

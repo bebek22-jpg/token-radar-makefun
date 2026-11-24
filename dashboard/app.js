@@ -1,8 +1,9 @@
-// Token Radar's dashboard. It reads window.RADAR (written beside dashboard/ by main.ts) and
-// renders the ranked board, a filterable table, a per-protocol detail drawer with the model's own
-// inputs and the farm plan board.json carries, and the live-token panel. No network: every byte
-// it shows is in data.js. The page recomputes each row's implied value from the snapshot figures,
-// so the page's arithmetic and the board's data are visibly the same model.
+// Token Radar's dashboard, radar-3. It reads window.RADAR (written beside dashboard/ by
+// main.ts) and renders the ranked board, a filterable table, a per-protocol detail drawer with
+// the model's own inputs and the farm plan board.json carries, the live-token panel, and the
+// calibration table that shows how the market set every category multiple. No network: every byte
+// it shows is in data.js. The page recomputes each row's implied value from the snapshot figures
+// and the calibration, so the page's arithmetic and the board's data are visibly the same model.
 (function () {
   'use strict';
 
@@ -34,14 +35,17 @@
     return Math.max(0, Math.round(days)) + 'd';
   }
 
-  // The model in one function, mirroring lib/model.ts: category multiple, momentum from 7d growth,
-  // a saturating maturity curve over the time run with no token, and multi-chain breadth.
+  // The model in one function, mirroring lib/model.ts: the category multiple comes from the
+  // calibration (median mcap/TVL of the live protocols in the group, global median when too few),
+  // then momentum from 7d growth, a saturating maturity curve over the time run with no token,
+  // and multi-chain breadth.
   function categoryMultiple(category) {
     var c = (category || '').toLowerCase();
-    for (var i = 0; i < DATA.category_rules.length; i++) {
-      if (c.indexOf(DATA.category_rules[i].key) >= 0) return DATA.category_rules[i].multiple;
+    var groups = DATA.calibration.groups;
+    for (var i = 0; i < groups.length; i++) {
+      if (c.indexOf(groups[i].key) >= 0) return groups[i].multiple;
     }
-    return DATA.model.default_multiple;
+    return DATA.calibration.global_median;
   }
   function impliedOf(row) {
     var m = DATA.model;
@@ -156,7 +160,7 @@
         '<td class="num">' + fmtUsd(r.mcap_usd) + '</td><td class="num">' + ratio + '</td></tr>';
     }).join('');
     return '<div class="panel"><div class="table-wrap"><table>' +
-      '<caption>Token live: these protocols already trade, so their market cap is a fact, not a model. They are set aside from the pre-token ranking — the radar ranks only what is still to come.</caption>' +
+      '<caption>Token live: these protocols already trade, so their market cap is a fact, not a model. They are set aside from the pre-token ranking — and their mcap/TVL ratios calibrate the multiples the pre-token rows are scored with.</caption>' +
       '<thead><tr><th scope="col">Status</th><th scope="col">Protocol</th><th scope="col">TVL</th><th scope="col">7d</th><th scope="col">Market cap</th><th scope="col">Mcap / TVL</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div></div>';
   }
@@ -208,6 +212,11 @@
     writeHash();
     var recomputed = impliedOf(row);
     var match = recomputed === row.implied_value_usd;
+    var basis = row.calibration_calibrated
+      ? 'median mcap/TVL of ' + row.calibration_n + ' live ' + row.calibration_group + ' protocols in this snapshot'
+      : row.calibration_group === 'All live protocols'
+        ? 'global median mcap/TVL of ' + DATA.calibration.global_n + ' live protocols in this snapshot'
+        : 'global median mcap/TVL of ' + DATA.calibration.global_n + ' live protocols (too few live ' + row.calibration_group + ' to calibrate)';
     var steps = row.farm_steps.map(function (s) {
       var at = s.indexOf(' Cost: ');
       var action = at >= 0 ? s.slice(0, at) : s;
@@ -222,6 +231,7 @@
       '<section class="detail-section"><h3>Implied value — the model, line by line</h3><div class="equation">' +
       '<div><span>TVL</span><b class="num">' + fmtUsd(row.tvl_usd) + '</b></div>' +
       '<div><span>Category multiple (' + esc(row.category || 'Other') + ')</span><b class="num">x' + row.category_multiple.toFixed(2) + '</b></div>' +
+      '<div><span class="basis">' + esc(basis) + '</span><span></span></div>' +
       '<div><span>7d growth ' + fmtPct(row.change_7d) + '</span><b class="num">x' + row.growth_multiplier.toFixed(2) + '</b></div>' +
       '<div><span>Age with no token (' + fmtAge(row.age_days) + ')</span><b class="num">x' + row.maturity_multiplier.toFixed(2) + '</b></div>' +
       '<div><span>Breadth (' + (row.chains || []).length + ' chain' + ((row.chains || []).length === 1 ? '' : 's') + ')</span><b class="num">x' + row.breadth_multiplier.toFixed(2) + '</b></div>' +
@@ -238,6 +248,19 @@
     }
   }
 
+  function calibrationTableHtml() {
+    var rows = DATA.calibration.groups.map(function (g) {
+      var basis = g.calibrated
+        ? 'median of ' + g.n + ' live'
+        : 'global median (' + g.n + ' live — too few)';
+      return '<tr><td>' + esc(g.label) + '</td><td class="num">x' + g.multiple.toFixed(2) + '</td><td class="num">' + g.n + '</td><td class="sub">' + esc(basis) + '</td></tr>';
+    }).join('');
+    return '<div class="table-wrap"><table class="calib">' +
+      '<caption>Every multiple the market set: median mcap/TVL of the live-token protocols in each group, from this snapshot. Groups with fewer than ' + DATA.model.min_calibration_n + ' live comparables fall back to the global median.</caption>' +
+      '<thead><tr><th scope="col">Category group</th><th scope="col">Multiple</th><th scope="col">Live comps</th><th scope="col">Basis</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+  }
+
   function buildShell() {
     var categories = Array.from(new Set(DATA.rows.map(function (r) { return r.category || 'Other'; }))).sort();
     var chains = Array.from(new Set(DATA.rows.reduce(function (acc, r) { return acc.concat(r.chains || []); }, []))).sort();
@@ -247,9 +270,6 @@
       return '<button class="mover" type="button" data-mover="' + esc(r.slug) + '"><b>' + esc(r.name) + '</b><span class="num pos">' + fmtPct(r.change_7d) + '</span><span class="sub">7d</span></button>';
     }).join('');
     var m = DATA.model;
-    var rules = DATA.category_rules.map(function (rule) {
-      return '<span class="rule">' + esc(rule.label) + ' <b>x' + rule.multiple.toFixed(2) + '</b></span>';
-    }).join('');
     var formula = 'implied = round( tvl_usd x category_multiple x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap +
       ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + ' + m.maturity_range + ' x (1 - e^(-age_days / ' + m.maturity_tau_days +
       '))) x min(' + m.breadth_cap + ', 1 + ' + m.breadth_weight + ' x ln(chains)) )';
@@ -278,10 +298,10 @@
       '<span class="count" id="count"></span></div>' +
       '<div id="board-panel"></div>' +
       '<section class="panel model" id="model-panel"><h2>How implied value is computed</h2>' +
-      '<p class="sub">One function scores every row, from the snapshot figures alone. No protocol name is special-cased, and no row is hand-picked.</p>' +
+      '<p class="sub">One function scores every row, from the snapshot figures alone. No protocol name is special-cased, and no multiple is hand-picked: each category multiple is the median market-cap-to-TVL ratio of the live-token protocols in that group, computed from this snapshot at run time.</p>' +
       '<div class="formula">' + esc(formula) + '</div>' +
-      '<div class="rules">' + rules + '<span class="rule">Everything else <b>x' + m.default_multiple.toFixed(2) + '</b></span></div>' +
-      '<p class="sub">TVL, seven-day growth, listing age and chain count come from the snapshot. Age is the time since the protocol was first listed — the best record of how long it has run with no token; an unlisted age counts as ' + m.unknown_age_days + ' days. Growth is clamped so one wild week cannot dominate, maturity saturates so age stops paying after a few years, and breadth rewards TVL spread over many chains. Live-token protocols are set aside with their market caps shown.</p></section>' +
+      calibrationTableHtml() +
+      '<p class="sub">TVL, seven-day growth, listing age and chain count come from the snapshot. Age is the time since the protocol was first listed — the best record of how long it has run with no token; an unlisted age counts as ' + m.unknown_age_days + ' days. Growth is clamped so one wild week cannot dominate, maturity saturates so age stops paying after a few years, and breadth rewards TVL spread over many chains. Multiples are clamped to x' + m.multiple_floor.toFixed(2) + '–x' + m.multiple_cap.toFixed(2) + ', and a group with fewer than ' + m.min_calibration_n + ' live comparables takes the global median of x' + DATA.calibration.global_median.toFixed(2) + ' from ' + DATA.calibration.global_n + ' live protocols. Live-token protocols are set aside with their market caps shown.</p></section>' +
       '<footer class="foot"><span>Source: ' + esc(DATA.source) + '</span><span>“Records no token” is DefiLlama\u2019s record, not proof: a protocol on the board may still have a token its record does not carry. Implied values are this entry\u2019s own claim, never make.fun\u2019s.</span></footer>' +
       '</div>';
 
